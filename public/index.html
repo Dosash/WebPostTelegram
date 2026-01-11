@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WebPost</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="app__header">
+        <div>
+          <h1>WebPost</h1>
+          <p>Send text, images, and buttons to Telegram channels.</p>
+        </div>
+        <div class="theme-toggle">
+          <span>Theme</span>
+          <button type="button" id="theme-toggle">Dark</button>
+        </div>
+      </header>
+
+      <details class="panel" id="bots-panel">
+        <summary>
+          <span>Bots</span>
+          <span class="summary-hint">click to expand</span>
+        </summary>
+        <form id="bot-form">
+          <label>
+            Bot name
+            <input type="text" name="name" placeholder="Main bot" required />
+          </label>
+          <label>
+            Bot token
+            <input
+              type="password"
+              name="token"
+              placeholder="123456:ABC-DEF..."
+              autocomplete="off"
+              required
+            />
+          </label>
+          <button type="submit">Add bot</button>
+          <div class="hint" id="bot-status"></div>
+        </form>
+        <div id="bot-list" class="list"></div>
+      </details>
+
+      <details class="panel" id="channels-panel">
+        <summary>
+          <span>Channels</span>
+          <span class="summary-hint">click to expand</span>
+        </summary>
+        <form id="channel-form">
+          <label>
+            Channel username or ID
+            <input type="text" name="channel" placeholder="@mychannel" required />
+          </label>
+          <button type="submit">Add channel</button>
+        </form>
+        <div id="channel-list" class="list"></div>
+      </details>
+
+      <section class="panel">
+        <h2>Send Post</h2>
+        <form id="post-form" enctype="multipart/form-data">
+          <div class="field">
+            <div class="field__label">Channels (select multiple)</div>
+            <div id="channel-select" class="channel-grid" role="group"></div>
+          </div>
+          <label>
+            Bot
+            <select name="botId" id="bot-select" required></select>
+          </label>
+          <label>
+            Text (HTML allowed)
+            <textarea name="text" rows="4" placeholder="Optional if you upload an image"></textarea>
+          </label>
+          <label>
+            Image (optional)
+            <input type="file" name="image" accept="image/*" />
+          </label>
+          <input type="hidden" name="archiveId" id="archive-id" />
+          <div id="archive-preview" class="archive-preview"></div>
+          <label>
+            Delay between channels (sec)
+            <input type="number" name="delaySec" min="0" step="1" value="1" />
+          </label>
+          <div class="grid">
+            <label>
+              Button text (optional)
+              <input type="text" name="buttonText" placeholder="Learn more" />
+            </label>
+            <label>
+              Button URL (optional)
+              <input type="url" name="buttonUrl" placeholder="https://example.com" />
+            </label>
+          </div>
+          <button type="submit">Send</button>
+          <div class="hint" id="send-timer"></div>
+          <div class="hint" id="post-status"></div>
+        </form>
+      </section>
+
+      <section class="panel">
+        <h2>Archive</h2>
+        <div id="archive-list" class="list"></div>
+        <div class="hint" id="archive-status"></div>
+      </section>
+
+      <details class="panel" id="logs-panel">
+        <summary>
+          <span>Logs</span>
+          <span class="summary-hint">click to expand</span>
+        </summary>
+        <div id="log-list" class="list"></div>
+      </details>
+    </main>
+
+    <script src="script.js"></script>
+  </body>
+</html>
