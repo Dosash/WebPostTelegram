@@ -3,19 +3,22 @@ async function fetchConfig() {
   return res.json();
 }
 
-async function fetchLogs() {
-  const res = await fetch("/api/logs", { cache: "no-store" });
+async function fetchLogs(offset = 0, limit = PAGE_SIZE, refresh = false) {
+  const refreshParam = refresh ? "&refresh=1" : "";
+  const res = await fetch(`/api/logs?offset=${offset}&limit=${limit}${refreshParam}`, { cache: "no-store" });
   return res.json();
 }
 
-async function fetchArchive() {
-  const res = await fetch("/api/archive", { cache: "no-store" });
+async function fetchArchive(offset = 0, limit = PAGE_SIZE, refresh = false) {
+  const refreshParam = refresh ? "&refresh=1" : "";
+  const res = await fetch(`/api/archive?offset=${offset}&limit=${limit}${refreshParam}`, { cache: "no-store" });
   return res.json();
 }
 
 let currentBotId = "";
 let cachedBots = [];
 const THEME_KEY = "webpost-theme";
+const PAGE_SIZE = 50;
 
 function setHint(el, message, type) {
   el.textContent = message;
@@ -112,10 +115,12 @@ function renderBots(bots) {
   }
 }
 
-function renderLogs(logs) {
+function renderLogs(logs, { append } = {}) {
   const list = document.getElementById("log-list");
-  list.innerHTML = "";
-  if (!logs.length) {
+  if (!append) {
+    list.innerHTML = "";
+  }
+  if (!logs.length && !append) {
     list.textContent = "No logs yet.";
     return;
   }
@@ -182,10 +187,12 @@ function renderLogs(logs) {
   });
 }
 
-function renderArchive(items) {
+function renderArchive(items, { append } = {}) {
   const list = document.getElementById("archive-list");
-  list.innerHTML = "";
-  if (!items.length) {
+  if (!append) {
+    list.innerHTML = "";
+  }
+  if (!items.length && !append) {
     list.textContent = "No archived posts yet.";
     return;
   }
@@ -252,14 +259,38 @@ async function loadConfig() {
   renderChannels(selectedBot ? selectedBot.channels || [] : []);
 }
 
-async function loadLogs() {
-  const data = await fetchLogs();
-  renderLogs(data.logs || []);
+async function loadLogs({ append = false } = {}) {
+  const data = await fetchLogs(logsOffset, PAGE_SIZE);
+  renderLogs(data.logs || [], { append });
+  const total = Number(data.total || 0);
+  const received = logsOffset + (data.logs || []).length;
+  document.getElementById("logs-more").disabled = received >= total;
 }
 
-async function loadArchive() {
-  const data = await fetchArchive();
-  renderArchive(data.archive || []);
+async function loadArchive({ append = false } = {}) {
+  const data = await fetchArchive(archiveOffset, PAGE_SIZE);
+  renderArchive(data.archive || [], { append });
+  const total = Number(data.total || 0);
+  const received = archiveOffset + (data.archive || []).length;
+  document.getElementById("archive-more").disabled = received >= total;
+}
+
+async function refreshLogs() {
+  logsOffset = 0;
+  const data = await fetchLogs(logsOffset, PAGE_SIZE, true);
+  renderLogs(data.logs || [], { append: false });
+  const total = Number(data.total || 0);
+  const received = logsOffset + (data.logs || []).length;
+  document.getElementById("logs-more").disabled = received >= total;
+}
+
+async function refreshArchive() {
+  archiveOffset = 0;
+  const data = await fetchArchive(archiveOffset, PAGE_SIZE, true);
+  renderArchive(data.archive || [], { append: false });
+  const total = Number(data.total || 0);
+  const received = archiveOffset + (data.archive || []).length;
+  document.getElementById("archive-more").disabled = received >= total;
 }
 
 async function addBot(event) {
@@ -408,9 +439,11 @@ async function sendPost(event) {
     return;
   }
   form.reset();
+  document.getElementById("archive-id").value = "";
+  document.getElementById("archive-preview").textContent = "";
   setHint(status, "Message sent.", "success");
-  await loadLogs();
-  await loadArchive();
+  await refreshLogs();
+  await refreshArchive();
 }
 
 async function resendArchive(id) {
@@ -427,7 +460,7 @@ async function resendArchive(id) {
     return;
   }
   setHint(status, "Archived post sent.", "success");
-  await loadLogs();
+  await refreshLogs();
 }
 
 function fillSendFromArchive(entry) {
@@ -481,6 +514,17 @@ document
     renderChannels(selectedBot ? selectedBot.channels || [] : []);
   });
 
+document.getElementById("logs-refresh").addEventListener("click", refreshLogs);
+document.getElementById("archive-refresh").addEventListener("click", refreshArchive);
+document.getElementById("logs-more").addEventListener("click", async () => {
+  logsOffset += PAGE_SIZE;
+  await loadLogs({ append: true });
+});
+document.getElementById("archive-more").addEventListener("click", async () => {
+  archiveOffset += PAGE_SIZE;
+  await loadArchive({ append: true });
+});
+
 document.querySelector("input[name='image']").addEventListener("change", (e) => {
   const archiveIdInput = document.getElementById("archive-id");
   const preview = document.getElementById("archive-preview");
@@ -498,6 +542,7 @@ function applyTheme(theme) {
 
 const savedTheme = localStorage.getItem(THEME_KEY) || "dark";
 applyTheme(savedTheme);
+
 document.getElementById("theme-toggle").addEventListener("click", () => {
   const current = localStorage.getItem(THEME_KEY) || "dark";
   const next = current === "dark" ? "light" : "dark";
@@ -506,8 +551,5 @@ document.getElementById("theme-toggle").addEventListener("click", () => {
 });
 
 loadConfig();
-loadLogs();
-loadArchive();
-
-setInterval(loadLogs, 5000);
-setInterval(loadArchive, 5000);
+refreshLogs();
+refreshArchive();

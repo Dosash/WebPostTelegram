@@ -5,7 +5,12 @@ const https = require("https");
 const multer = require("multer");
 
 const app = express();
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024,
+  },
+});
 
 const DATA_DIR = path.join(__dirname, "data");
 const CONFIG_PATH = path.join(DATA_DIR, "config.json");
@@ -15,6 +20,21 @@ const ARCHIVE_PATH = path.join(DATA_DIR, "archive.json");
 const MAX_ARCHIVE = 200;
 const UPLOAD_DIR = path.join(DATA_DIR, "uploads");
 const SEND_DELAY_MS = 1000;
+const DEFAULT_PAGE_SIZE = 50;
+const MAX_PAGE_SIZE = 200;
+
+let cachedConfig = null;
+let cachedLogs = null;
+let cachedArchive = null;
+let configSaveTimer = null;
+let logsSaveTimer = null;
+let archiveSaveTimer = null;
+
+function clearCache() {
+  cachedConfig = null;
+  cachedLogs = null;
+  cachedArchive = null;
+}
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
@@ -25,12 +45,15 @@ function ensureConfig() {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
   if (!fs.existsSync(CONFIG_PATH)) {
-    const initial = { token: "", channels: [] };
+    const initial = { bots: [] };
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(initial, null, 2), "utf8");
   }
 }
 
 function readConfig() {
+  if (cachedConfig) {
+    return cachedConfig;
+  }
   ensureConfig();
   try {
     const raw = fs.readFileSync(CONFIG_PATH, "utf8");
@@ -40,12 +63,13 @@ function readConfig() {
         ...bot,
         channels: Array.isArray(bot.channels) ? bot.channels : [],
       }));
-      return {
+      cachedConfig = {
         bots,
       };
+      return cachedConfig;
     }
     if (typeof parsed.token === "string" && parsed.token.trim()) {
-      return {
+      cachedConfig = {
         bots: [
           {
             id: "default",
@@ -55,18 +79,28 @@ function readConfig() {
           },
         ],
       };
+      return cachedConfig;
     }
-    return {
+    cachedConfig = {
       bots: [],
     };
+    return cachedConfig;
   } catch {
-    return { bots: [] };
+    cachedConfig = { bots: [] };
+    return cachedConfig;
   }
 }
 
 function writeConfig(config) {
   ensureConfig();
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), "utf8");
+  cachedConfig = config;
+  if (configSaveTimer) {
+    return;
+  }
+  configSaveTimer = setTimeout(() => {
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(cachedConfig, null, 2), "utf8");
+    configSaveTimer = null;
+  }, 300);
 }
 
 function ensureArchive() {
@@ -82,13 +116,18 @@ function ensureArchive() {
 }
 
 function readArchive() {
+  if (cachedArchive) {
+    return cachedArchive;
+  }
   ensureArchive();
   try {
     const raw = fs.readFileSync(ARCHIVE_PATH, "utf8");
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    cachedArchive = Array.isArray(parsed) ? parsed : [];
+    return cachedArchive;
   } catch {
-    return [];
+    cachedArchive = [];
+    return cachedArchive;
   }
 }
 
@@ -98,7 +137,18 @@ function appendArchive(entry) {
   if (archive.length > MAX_ARCHIVE) {
     archive.length = MAX_ARCHIVE;
   }
-  fs.writeFileSync(ARCHIVE_PATH, JSON.stringify(archive, null, 2), "utf8");
+  cachedArchive = archive;
+  if (archiveSaveTimer) {
+    return;
+  }
+  archiveSaveTimer = setTimeout(() => {
+    fs.writeFileSync(
+      ARCHIVE_PATH,
+      JSON.stringify(cachedArchive, null, 2),
+      "utf8"
+    );
+    archiveSaveTimer = null;
+  }, 300);
 }
 
 function sleep(ms) {
@@ -115,13 +165,18 @@ function ensureLogs() {
 }
 
 function readLogs() {
+  if (cachedLogs) {
+    return cachedLogs;
+  }
   ensureLogs();
   try {
     const raw = fs.readFileSync(LOG_PATH, "utf8");
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    cachedLogs = Array.isArray(parsed) ? parsed : [];
+    return cachedLogs;
   } catch {
-    return [];
+    cachedLogs = [];
+    return cachedLogs;
   }
 }
 
@@ -131,7 +186,14 @@ function appendLog(entry) {
   if (logs.length > MAX_LOGS) {
     logs.length = MAX_LOGS;
   }
-  fs.writeFileSync(LOG_PATH, JSON.stringify(logs, null, 2), "utf8");
+  cachedLogs = logs;
+  if (logsSaveTimer) {
+    return;
+  }
+  logsSaveTimer = setTimeout(() => {
+    fs.writeFileSync(LOG_PATH, JSON.stringify(cachedLogs, null, 2), "utf8");
+    logsSaveTimer = null;
+  }, 300);
 }
 
 function buildLogBase({ channels, text, hasImage, buttonText, buttonUrl, image }) {
@@ -272,13 +334,41 @@ app.get("/api/config", (req, res) => {
 });
 
 app.get("/api/logs", (req, res) => {
+  if (req.query.refresh === "1") {
+    cachedLogs = null;
+  }
   res.set("Cache-Control", "no-store");
-  res.json({ logs: readLogs() });
+  const offset = Number(req.query.offset || 0);
+  const limit = Math.min(
+    Number(req.query.limit || DEFAULT_PAGE_SIZE),
+    MAX_PAGE_SIZE
+  );
+  const logs = readLogs();
+  res.json({
+    logs: logs.slice(offset, offset + limit),
+    total: logs.length,
+    offset,
+    limit,
+  });
 });
 
 app.get("/api/archive", (req, res) => {
+  if (req.query.refresh === "1") {
+    cachedArchive = null;
+  }
   res.set("Cache-Control", "no-store");
-  res.json({ archive: readArchive() });
+  const offset = Number(req.query.offset || 0);
+  const limit = Math.min(
+    Number(req.query.limit || DEFAULT_PAGE_SIZE),
+    MAX_PAGE_SIZE
+  );
+  const archive = readArchive();
+  res.json({
+    archive: archive.slice(offset, offset + limit),
+    total: archive.length,
+    offset,
+    limit,
+  });
 });
 
 app.post("/api/bots", (req, res) => {
@@ -337,6 +427,7 @@ app.post("/api/channels", (req, res) => {
   if (!bot.channels.includes(trimmed)) {
     bot.channels.push(trimmed);
   }
+  bot.channels.sort((a, b) => a.localeCompare(b));
   writeConfig(config);
   res.json({ ok: true, channels: bot.channels });
 });
